@@ -142,6 +142,9 @@ impl Backend for MetalBackend {
     }
 
     fn load(&mut self, model_path: &Path, opts: LoadOpts) -> herbert_core::error::Result<()> {
+        if opts.gpu_index.is_some() {
+            eprintln!("[metal] Warning: --gpu device selection is not supported on Metal, using system default GPU");
+        }
         let max_tokens = opts.kv_reserve_tokens.unwrap_or(4096).max(256);
 
         let ctx = context::MetalContext::new()?;

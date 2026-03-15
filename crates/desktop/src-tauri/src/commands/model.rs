@@ -99,6 +99,7 @@ pub async fn load_model(
             kv_quant: KvQuantType::BF16,
             kv_budget: None,
             use_q_bf16: false,
+            gpu_index: None,
         };
         backend
             .load(path, load_opts)

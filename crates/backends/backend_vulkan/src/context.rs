@@ -33,6 +33,90 @@ pub struct VulkanContext {
 }
 
 impl VulkanContext {
+    /// List all available Vulkan physical devices with their properties.
+    ///
+    /// Prints a table showing each device's `--gpu` index, name, type, vendor, and VRAM.
+    /// Discrete GPUs use indices 0..N, all devices use global indices 1000+N.
+    pub fn list_devices() -> Result<()> {
+        let entry = unsafe { ash::Entry::load() }
+            .map_err(|e| HerbertError::Backend(format!("Failed to load Vulkan: {:?}", e)))?;
+
+        let app_info =
+            vk::ApplicationInfo::default().api_version(vk::make_api_version(0, 1, 3, 0));
+        let instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+        let instance = unsafe { entry.create_instance(&instance_info, None) }
+            .map_err(|e| HerbertError::Backend(format!("Failed to create Vulkan instance: {:?}", e)))?;
+
+        let physical_devices = unsafe { instance.enumerate_physical_devices() }
+            .map_err(|e| HerbertError::Backend(format!("Failed to enumerate devices: {:?}", e)))?;
+
+        if physical_devices.is_empty() {
+            eprintln!("[vulkan] No Vulkan devices found.");
+            unsafe { instance.destroy_instance(None); }
+            return Ok(());
+        }
+
+        // Track discrete GPU index for the 0..N convention
+        let mut discrete_idx: usize = 0;
+
+        eprintln!("[vulkan] Available GPUs:");
+        for (global_idx, &pd) in physical_devices.iter().enumerate() {
+            let props = unsafe { instance.get_physical_device_properties(pd) };
+            let dev_name = unsafe { std::ffi::CStr::from_ptr(props.device_name.as_ptr()) }
+                .to_string_lossy();
+
+            let type_str = match props.device_type {
+                vk::PhysicalDeviceType::DISCRETE_GPU => "DISCRETE",
+                vk::PhysicalDeviceType::INTEGRATED_GPU => "INTEGRATED",
+                vk::PhysicalDeviceType::CPU => "CPU",
+                vk::PhysicalDeviceType::VIRTUAL_GPU => "VIRTUAL",
+                _ => "OTHER",
+            };
+
+            let vendor_str = match props.vendor_id {
+                VENDOR_NVIDIA => "NVIDIA",
+                VENDOR_AMD => "AMD",
+                _ => "other",
+            };
+
+            // Get VRAM: sum of DEVICE_LOCAL heaps
+            let mem_props = unsafe { instance.get_physical_device_memory_properties(pd) };
+            let mut vram_bytes: u64 = 0;
+            for i in 0..mem_props.memory_heap_count as usize {
+                let heap = mem_props.memory_heaps[i];
+                if heap.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL) {
+                    vram_bytes += heap.size;
+                }
+            }
+            let vram_mb = vram_bytes / (1024 * 1024);
+
+            let is_discrete = props.device_type == vk::PhysicalDeviceType::DISCRETE_GPU;
+
+            // Show the --gpu index to use
+            let gpu_flag = if is_discrete {
+                let idx = discrete_idx;
+                discrete_idx += 1;
+                format!("{}", idx)
+            } else {
+                format!("{}", 1000 + global_idx)
+            };
+
+            let default_marker = if is_discrete && gpu_flag == "0" {
+                "  (default)"
+            } else {
+                ""
+            };
+
+            eprintln!(
+                "  --gpu {:<4} {:<40} {:<12} {:>6} MB{}",
+                gpu_flag, dev_name, type_str, vram_mb, default_marker
+            );
+        }
+
+        unsafe { instance.destroy_instance(None); }
+        Ok(())
+    }
+
     /// Create a new Vulkan context with compute queue and runtime capability detection.
     ///
     /// Detects GPU vendor and capabilities at runtime:

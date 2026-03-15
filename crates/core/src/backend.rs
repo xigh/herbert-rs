@@ -30,6 +30,8 @@ pub struct LoadOpts {
     pub use_q_bf16: bool,
     /// KV cache budget for H2O eviction (None = unlimited, no eviction)
     pub kv_budget: Option<usize>,
+    /// GPU device index for Vulkan (0=first discrete, 1000+=global). None = default (0).
+    pub gpu_index: Option<usize>,
 }
 
 impl Default for LoadOpts {
@@ -46,6 +48,7 @@ impl Default for LoadOpts {
             kv_quant: KvQuantType::BF16,
             use_q_bf16: false,
             kv_budget: None,
+            gpu_index: None,
         }
     }
 }

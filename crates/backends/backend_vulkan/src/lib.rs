@@ -59,6 +59,11 @@ impl VulkanBackend {
     pub fn with_quant_mode(quant_mode: loader::QuantMode) -> Self {
         Self { inner: None, quant_mode }
     }
+
+    /// List all available Vulkan physical devices.
+    pub fn list_devices() -> herbert_core::error::Result<()> {
+        context::VulkanContext::list_devices()
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -73,7 +78,7 @@ impl Backend for VulkanBackend {
 
     fn load(&mut self, model_path: &Path, opts: LoadOpts) -> herbert_core::error::Result<()> {
         let max_tokens = opts.kv_reserve_tokens.unwrap_or(4096).max(256);
-        let ctx = context::VulkanContext::new(0)?;
+        let ctx = context::VulkanContext::new(opts.gpu_index.unwrap_or(0))?;
 
         // Try loading from cache first (skips quantization)
         let (config, model) = if !opts.no_cache {
@@ -158,6 +163,13 @@ impl VulkanBackend {
 
     pub fn with_quant_mode(_quant_mode: QuantMode) -> Self {
         Self { _private: () }
+    }
+
+    /// List Vulkan devices — stub on non-Linux.
+    pub fn list_devices() -> herbert_core::error::Result<()> {
+        Err(HerbertError::Backend(
+            "Vulkan backend is only supported on Linux".to_string(),
+        ))
     }
 }
 

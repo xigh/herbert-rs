@@ -177,6 +177,10 @@ struct Cli {
     #[arg(long)]
     kv_budget: Option<usize>,
 
+    /// GPU device index (0=first discrete, 1000+=global for iGPU). Use "list" to show available GPUs.
+    #[arg(long, value_name = "INDEX")]
+    gpu: Option<String>,
+
     /// Draft model directory for speculative decoding
     #[arg(long)]
     draft_model: Option<PathBuf>,
@@ -366,6 +370,20 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // --gpu list: enumerate Vulkan devices and exit
+    if cli.gpu.as_deref() == Some("list") {
+        herbert_backend_vulkan::VulkanBackend::list_devices()?;
+        return Ok(());
+    }
+
+    // Parse --gpu as usize if provided
+    let gpu_index: Option<usize> = match &cli.gpu {
+        Some(val) => Some(val.parse::<usize>().map_err(|_| {
+            anyhow::anyhow!("--gpu must be a number or \"list\", got: {}", val)
+        })?),
+        None => None,
+    };
+
     let model = cli.model.as_ref().ok_or_else(|| anyhow::anyhow!("--model is required"))?;
     let backend_name = &cli.backend;
 
@@ -497,6 +515,7 @@ fn main() -> anyhow::Result<()> {
             kv_quant,
             use_q_bf16,
             kv_budget: cli.kv_budget,
+            gpu_index,
             ..Default::default()
         },
     )?;
