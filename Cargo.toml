@@ -1,0 +1,58 @@
+[workspace]
+members = [
+    "crates/cli",
+    "crates/server",
+    "crates/core",
+    "crates/backend_registry",
+    "crates/backends/backend_common",
+    "crates/backends/backend_q4",
+    "crates/backends/backend_bf16",
+    "crates/backends/backend_bf16_avx512",
+    "crates/backends/backend_int8_avx512",
+    "crates/vision",
+    "crates/backends/backend_metal",
+    "crates/backends/backend_vulkan",
+    "crates/desktop/src-tauri",
+]
+resolver = "2"
+
+# Common workspace dependencies
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+half = { version = "2.3", features = ["serde"] }
+indicatif = "0.17"
+libc = "0.2"
+memmap2 = "0.9"
+num_cpus = "1.16"
+safetensors = "0.4.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "pnm"] }
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
+tracing = "0.1"
+rustyline = "15"
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+uuid = { version = "1", features = ["v4"] }
+tokio-stream = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tauri = { version = "2", features = [] }
+tauri-build = "2"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Philippe Anel <philippe@dremml.com>"]
+license = "MIT"
+description = "Local LLM inference engine with hand-written SIMD kernels"
+repository = "https://github.com/xigh/herbert-rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

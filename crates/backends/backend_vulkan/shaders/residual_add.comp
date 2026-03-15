@@ -1,0 +1,20 @@
+#version 450
+
+// Element-wise: a[i] += b[i]
+// Dispatch: (ceil(len / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer ABuf { float a[]; };
+layout(set = 0, binding = 1) readonly buffer BBuf { float b[]; };
+
+layout(push_constant) uniform Params {
+    uint len;
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx < len) {
+        a[idx] += b[idx];
+    }
+}

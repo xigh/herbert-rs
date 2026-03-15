@@ -1,0 +1,47 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Softmax (in-place, single row) -- subgroup optimized
+//
+// data: float[n], computed in-place
+// Dispatch: (1, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer DataBuf { float data[]; };
+
+layout(push_constant) uniform Params {
+    uint n;
+};
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+
+    // Find max
+    float max_val = -1.0 / 0.0; // -INF
+    for (uint i = lane; i < n; i += SUBGROUP_SIZE) {
+        max_val = max(max_val, data[i]);
+    }
+    max_val = subgroupMax(max_val);
+
+    // Exp and sum
+    float sum_exp = 0.0;
+    for (uint i = lane; i < n; i += SUBGROUP_SIZE) {
+        float v = exp(data[i] - max_val);
+        data[i] = v;
+        sum_exp += v;
+    }
+    sum_exp = subgroupAdd(sum_exp);
+
+    // Normalize
+    if (sum_exp > 0.0) {
+        float inv = 1.0 / sum_exp;
+        for (uint i = lane; i < n; i += SUBGROUP_SIZE) {
+            data[i] *= inv;
+        }
+    }
+}

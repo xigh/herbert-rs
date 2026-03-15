@@ -1,0 +1,60 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Int8 per-channel matrix-matrix multiply (prefill: M>1)
+//
+// Symmetric signed 8-bit weights packed 4 values per uint32.
+// Per-channel (per-row) f32 scales.
+//
+// A: float[M*K], W_packed: uint[N * K/4], scales: float[N], C: float[M*N]
+// C[m,n] = scales[n] * sum_k(A[m*K + k] * int8(W[n,k]))
+//
+// Push constants: M (u32), K (u32) = 8 bytes.
+// Dispatch: (N, M, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+// Each workgroup handles one (m, n) output element.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf { float A[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint W_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer CBuf { float C[]; };
+
+layout(push_constant) uniform Params {
+    uint M;
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint m = gl_WorkGroupID.y;
+    uint lane = gl_LocalInvocationID.x;
+    uint N = gl_NumWorkGroups.x;
+
+    if (m >= M) return;
+
+    float acc = 0.0;
+    uint a_base = m * K;
+    uint K4 = K >> 2;
+    uint w_base = n * K4;
+
+    for (uint i = lane; i < K4; i += SUBGROUP_SIZE) {
+        uint k = i << 2;
+        uint packed = W_packed[w_base + i];
+
+        acc += A[a_base + k]     * float(bitfieldExtract(int(packed),  0, 8));
+        acc += A[a_base + k + 1] * float(bitfieldExtract(int(packed),  8, 8));
+        acc += A[a_base + k + 2] * float(bitfieldExtract(int(packed), 16, 8));
+        acc += A[a_base + k + 3] * float(bitfieldExtract(int(packed), 24, 8));
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        C[m * N + n] = acc * scales[n];
+    }
+}

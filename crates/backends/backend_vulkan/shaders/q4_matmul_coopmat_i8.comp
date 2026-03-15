@@ -1,0 +1,156 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_cooperative_matrix : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float32 : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Q4 cooperative matrix matmul — INT8 WMMA (NVIDIA-only, prefill M >= 16)
+//
+// Uses int8×int8→int32 WMMA (16×16×32) for 2× throughput vs fp16 on NVIDIA.
+// K_tile = 32 = 1 Q4 group → exact scale alignment, no inter-group accumulation.
+// WG=256 for cooperative loads.
+//
+// C[M,N] = sum_g( a_scale[m] * w_scale[n,g] * WMMA(a_q8, w_q8) )
+//
+// A: dynamically quantized to int8 per (row, K-group)
+// B: Q4 nibbles → int8 via (nibble - 8) ∈ [-8, +7]
+//
+// Push constants: M (u32) + N (u32) + K (u32) = 12 bytes.
+// Dispatch: (ceil(N/16), ceil(M/16), 1) workgroups of (256, 1, 1).
+//
+// Shared memory: sh_a(512B) + sh_b(512B) + sh_a_scale(64B) + sh_c_i32(1024B) = 2112B
+
+#define TILE_M 16
+#define TILE_N 16
+#define TILE_K 32
+#define WG_SIZE 256
+
+layout(local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf { float A[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint W_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer CBuf { float C[]; };
+
+layout(push_constant) uniform Params {
+    uint M;
+    uint N;
+    uint K;
+};
+
+shared int8_t sh_a[TILE_M * TILE_K];
+shared int8_t sh_b[TILE_K * TILE_N];
+shared float sh_a_scale[TILE_M];
+shared int sh_c_i32[TILE_M * TILE_N];
+
+void main() {
+    uint tile_n = gl_WorkGroupID.x;
+    uint tile_m = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint m_start = tile_m * TILE_M;
+    uint n_start = tile_n * TILE_N;
+
+    uint K8 = K >> 3;
+    uint n_groups = (K + 31) >> 5;
+
+    float float_acc = 0.0;
+
+    for (uint kk = 0; kk < K; kk += TILE_K) {
+        uint g = kk >> 5;
+
+        // Compute activation scale per row
+        if (tid < TILE_M) {
+            uint gm = m_start + tid;
+            float max_abs = 0.0;
+            if (gm < M) {
+                for (uint lk = 0; lk < TILE_K; lk++) {
+                    uint gk = kk + lk;
+                    if (gk < K) {
+                        max_abs = max(max_abs, abs(A[gm * K + gk]));
+                    }
+                }
+            }
+            sh_a_scale[tid] = (max_abs > 0.0) ? (max_abs / 127.0) : 1.0;
+        }
+        barrier();
+
+        // Quantize A to int8
+        for (uint i = tid; i < TILE_M * TILE_K; i += WG_SIZE) {
+            uint lm = i / TILE_K;
+            uint lk = i % TILE_K;
+            uint gm = m_start + lm;
+            uint gk = kk + lk;
+
+            int8_t q = int8_t(0);
+            if (gm < M && gk < K) {
+                q = int8_t(clamp(int(round(A[gm * K + gk] / sh_a_scale[lm])), -127, 127));
+            }
+            sh_a[lm * TILE_K + lk] = q;
+        }
+
+        // Unpack W Q4 → int8 (nibble - 8) and transpose
+        for (uint i = tid; i < TILE_K * TILE_N; i += WG_SIZE) {
+            uint lk = i / TILE_N;
+            uint ln = i % TILE_N;
+            uint gn = n_start + ln;
+            uint gk = kk + lk;
+
+            int8_t val = int8_t(0);
+            if (gn < N && gk < K) {
+                uint word_idx = gn * K8 + (gk >> 3);
+                uint packed = W_packed[word_idx];
+                uint nib_pos = gk & 7;
+                uint nibble = (packed >> (nib_pos * 4)) & 0xFu;
+                val = int8_t(int(nibble) - 8);
+            }
+            sh_b[lk * TILE_N + ln] = val;
+        }
+
+        barrier();
+
+        // INT8 WMMA
+        coopmat<int8_t, gl_ScopeSubgroup, TILE_M, TILE_K, gl_MatrixUseA> MatA;
+        coopmat<int8_t, gl_ScopeSubgroup, TILE_K, TILE_N, gl_MatrixUseB> MatB;
+        coopmat<int32_t, gl_ScopeSubgroup, TILE_M, TILE_N, gl_MatrixUseAccumulator> AccI32;
+        AccI32 = coopmat<int32_t, gl_ScopeSubgroup, TILE_M, TILE_N, gl_MatrixUseAccumulator>(0);
+
+        coopMatLoad(MatA, sh_a, 0, TILE_K, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(MatB, sh_b, 0, TILE_N, gl_CooperativeMatrixLayoutRowMajor);
+        AccI32 = coopMatMulAdd(MatA, MatB, AccI32);
+
+        coopMatStore(AccI32, sh_c_i32, 0, TILE_N, gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+
+        // Dequantize and accumulate
+        if (tid < TILE_M * TILE_N) {
+            uint lm = tid / TILE_N;
+            uint ln = tid % TILE_N;
+            uint gn = n_start + ln;
+
+            float a_sc = sh_a_scale[lm];
+            float w_sc = (gn < N) ? scales[gn * n_groups + g] : 0.0;
+            float_acc += a_sc * w_sc * float(sh_c_i32[lm * TILE_N + ln]);
+        }
+
+        barrier();
+    }
+
+    // Write result
+    if (tid < TILE_M * TILE_N) {
+        uint lm = tid / TILE_N;
+        uint ln = tid % TILE_N;
+        uint gm = m_start + lm;
+        uint gn = n_start + ln;
+        if (gm < M && gn < N) {
+            C[gm * N + gn] = float_acc;
+        }
+    }
+}

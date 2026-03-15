@@ -1,0 +1,93 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Prefill attention: batched Q*K^T with causal mask, softmax, V weighting.
+//
+// Each workgroup (SUBGROUP_SIZE threads) handles one (head, position) pair.
+// Dispatch: (num_heads, seq_len, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+//
+// Supports GQA: multiple query heads share a single KV head.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer QBuf { float q[]; };
+layout(set = 0, binding = 1) readonly buffer KCacheBuf { float k_cache[]; };
+layout(set = 0, binding = 2) readonly buffer VCacheBuf { float v_cache[]; };
+layout(set = 0, binding = 3) writeonly buffer OutputBuf { float output_data[]; };
+layout(set = 0, binding = 4) buffer ScoresBuf { float scores[]; };
+
+layout(push_constant) uniform Params {
+    uint seq_len;
+    uint num_heads;
+    uint num_kv_heads;
+    uint head_dim;
+    uint kv_dim;
+    uint q_dim;
+    uint cached_len;
+    uint start_pos;
+    float scale;
+};
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint pos = gl_WorkGroupID.y;
+    uint lane = gl_LocalInvocationID.x;
+    if (pos >= seq_len) return;
+
+    uint kv_group_size = num_heads / num_kv_heads;
+    uint kv_head = h / kv_group_size;
+    uint query_pos = start_pos + pos;
+    uint q_offset = pos * q_dim + h * head_dim;
+    uint kv_head_base = kv_head * head_dim;
+
+    uint scores_offset = (pos * num_heads + h) * cached_len;
+
+    // Phase 1: Q*K^T with causal mask
+    float local_max = -1.0 / 0.0;
+    for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+        float score;
+        if (t <= query_pos) {
+            score = 0.0;
+            uint k_offset = t * kv_dim + kv_head_base;
+            for (uint d = 0; d < head_dim; d++) {
+                score += q[q_offset + d] * k_cache[k_offset + d];
+            }
+            score *= scale;
+        } else {
+            score = -1.0 / 0.0;  // causal mask: future positions get -inf
+        }
+        scores[scores_offset + t] = score;
+        local_max = max(local_max, score);
+    }
+    float max_score = subgroupMax(local_max);
+
+    // Phase 2: Softmax
+    float local_sum = 0.0;
+    for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+        float v = exp(scores[scores_offset + t] - max_score);
+        scores[scores_offset + t] = v;
+        local_sum += v;
+    }
+    float sum_exp = subgroupAdd(local_sum);
+
+    if (sum_exp > 0.0) {
+        float inv = 1.0 / sum_exp;
+        for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+            scores[scores_offset + t] *= inv;
+        }
+    }
+
+    // Phase 3: Weighted sum of V
+    uint out_offset = pos * q_dim + h * head_dim;
+    for (uint d = lane; d < head_dim; d += SUBGROUP_SIZE) {
+        float sum_val = 0.0;
+        for (uint t = 0; t < cached_len; t++) {
+            sum_val += scores[scores_offset + t] * v_cache[t * kv_dim + kv_head_base + d];
+        }
+        output_data[out_offset + d] = sum_val;
+    }
+}

@@ -1,0 +1,36 @@
+[package]
+name = "herbert-backend-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = ["moe-v6"]
+moe-v6 = []
+profile-layer = []
+profile-attn = ["profile-layer"]
+profile-experts = ["profile-layer"]
+profile-kv = []
+profile-prefill-layer = []
+profile-decode-layer = []
+profile-kvcache-int8 = []
+profile-attn-kernel = []
+profile-moe-decode = []
+no-sw-prefetch = []
+hugepages = []
+attn-2pass = []
+bench-decode-snapshot = []
+
+[build-dependencies]
+cc = "1.0"
+
+[dependencies]
+herbert-core = { path = "../../core" }
+indicatif = { workspace = true }
+libc = { workspace = true }
+memmap2 = { workspace = true }
+safetensors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

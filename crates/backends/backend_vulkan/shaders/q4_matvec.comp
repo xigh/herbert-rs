@@ -1,0 +1,66 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Q4 per-group matrix-vector multiply (decode: M=1)
+//
+// Symmetric signed 4-bit weights, 2 nibbles per byte, group_size=32.
+// Per-group f32 scales.
+//
+// x: float[K], w_packed: uint8[N * K/2] (as uint32[N * K/8]),
+// scales: float[N * n_groups], y: float[N]
+// where n_groups = ceil(K / 32)
+//
+// Dequant: nibble in [0,15], value = (float(nibble) - 8.0) * scale
+//
+// Push constants: N (u32) + K (u32) = 8 bytes.
+// Dispatch: (N, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+// Each workgroup handles one output row. Subgroup reduction over K.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer XBuf { float x[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint w_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer YBuf { float y[]; };
+
+layout(push_constant) uniform Params {
+    uint N;
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+
+    if (n >= N) return;
+
+    float acc = 0.0;
+    uint K8 = K >> 3;              // number of uint32 words per row (8 nibbles per word)
+    uint n_groups = (K + 31) >> 5; // ceil(K / 32)
+    uint w_base = n * K8;          // offset into w_packed for this row
+    uint s_base = n * n_groups;    // offset into scales for this row
+
+    for (uint i = lane; i < K8; i += SUBGROUP_SIZE) {
+        uint k = i << 3;          // element index = i * 8
+        uint packed = w_packed[w_base + i];
+
+        // Process 8 nibbles from this uint32
+        for (uint nib = 0; nib < 8; nib++) {
+            uint k_idx = k + nib;
+            if (k_idx >= K) break;
+            uint nibble = (packed >> (nib * 4)) & 0xFu;
+            float dq = (float(nibble) - 8.0) * scales[s_base + (k_idx >> 5)];
+            acc += x[k_idx] * dq;
+        }
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        y[n] = acc;
+    }
+}

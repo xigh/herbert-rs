@@ -1,0 +1,26 @@
+#version 450
+
+// Gather selected rows by index: output[i*dim + d] = input[indices[i]*dim + d]
+// Dispatch: (ceil(count * dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) writeonly buffer OutBuf { float out_data[]; };
+layout(set = 0, binding = 1) readonly buffer InBuf { float in_data[]; };
+layout(set = 0, binding = 2) readonly buffer IdxBuf { uint indices[]; };
+
+layout(push_constant) uniform Params {
+    uint dim;
+    uint count;
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    uint total = count * dim;
+    if (idx >= total) return;
+
+    uint row = idx / dim;
+    uint col = idx % dim;
+    uint src_row = indices[row];
+    out_data[idx] = in_data[src_row * dim + col];
+}

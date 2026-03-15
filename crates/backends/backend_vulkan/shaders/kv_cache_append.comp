@@ -1,0 +1,21 @@
+#version 450
+
+// KV cache append: copy a single K or V vector to cache at position seq_len.
+//
+// Dispatch: (ceil(kv_dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer CacheBuf { float cache_data[]; };
+layout(set = 0, binding = 1) readonly buffer NewKVBuf { float new_kv[]; };
+
+layout(push_constant) uniform Params {
+    uint kv_dim;
+    uint seq_len;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= kv_dim) return;
+    cache_data[seq_len * kv_dim + tid] = new_kv[tid];
+}

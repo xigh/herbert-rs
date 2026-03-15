@@ -1,0 +1,38 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// RMS normalization (single vector) -- subgroup optimized
+//
+// input: float[dim], weight: float[dim], output: float[dim]
+// Dispatch: (1, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer InputBuf { float input_data[]; };
+layout(set = 0, binding = 1) readonly buffer WeightBuf { float weight[]; };
+layout(set = 0, binding = 2) writeonly buffer OutputBuf { float output_data[]; };
+
+layout(push_constant) uniform Params {
+    uint dim;
+    float eps;
+};
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+
+    float sum_sq = 0.0;
+    for (uint i = lane; i < dim; i += SUBGROUP_SIZE) {
+        float v = input_data[i];
+        sum_sq += v * v;
+    }
+    sum_sq = subgroupAdd(sum_sq);
+    float inv_rms = inversesqrt(sum_sq / float(dim) + eps);
+
+    for (uint i = lane; i < dim; i += SUBGROUP_SIZE) {
+        output_data[i] = input_data[i] * inv_rms * weight[i];
+    }
+}

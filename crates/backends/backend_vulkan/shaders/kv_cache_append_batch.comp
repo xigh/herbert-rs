@@ -1,0 +1,24 @@
+#version 450
+
+// KV cache append batch: copy multiple K or V vectors to cache.
+//
+// Dispatch: (ceil(count * kv_dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer CacheBuf { float cache_data[]; };
+layout(set = 0, binding = 1) readonly buffer NewKVBuf { float new_kv[]; };
+
+layout(push_constant) uniform Params {
+    uint kv_dim;
+    uint start;
+    uint count;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= count * kv_dim) return;
+    uint pos = tid / kv_dim;
+    uint dim = tid % kv_dim;
+    cache_data[(start + pos) * kv_dim + dim] = new_kv[pos * kv_dim + dim];
+}

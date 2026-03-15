@@ -1,0 +1,319 @@
+# Herbert — Supported Models Registry
+#
+# This file serves as both documentation and a machine-readable reference
+# for model discovery and downloading. Each entry maps to a HuggingFace
+# repository that herbert can load and run inference on.
+#
+# Structure:
+#   features:  capability flags with the herbert version that introduced them.
+#              A model's minimum herbert version = max(since) across its features.
+#   models:    list of supported HuggingFace models with their feature requirements.
+#
+# Usage from code (future):
+#   Parse this file to enumerate downloadable models, compute min_version
+#   per model, validate compatibility at load time, and drive a TUI picker.
+
+# ─────────────────────────────────────────────
+# Features — herbert capabilities and their introduction version
+# ─────────────────────────────────────────────
+
+features:
+  qwen3_text:
+    since: "0.1.0"
+    description: "Qwen3 dense text models (qwen3 model_type)"
+
+  qwen3_moe:
+    since: "0.1.0"
+    description: "Qwen3 MoE text models (qwen3_moe model_type, expert routing)"
+
+  qwen3_vl:
+    since: "0.1.0"
+    description: "Qwen3-VL vision-language models (MRoPE, GPU vision encoder)"
+
+  qwen3_vl_moe:
+    since: "0.1.0"
+    description: "Qwen3-VL MoE vision-language models"
+
+  mistral3:
+    since: "0.2.0"
+    description: "Mistral3 / Ministral3 text models (no QK norms, EOS=2)"
+
+  pixtral:
+    since: "0.2.0"
+    description: "Pixtral CPU vision encoder for Mistral3 VL models"
+
+  yarn_rope:
+    since: "0.2.0"
+    description: "YARN RoPE scaling (extended context via smooth ramp blend)"
+
+  tekken:
+    since: "0.2.0"
+    description: "Tekken tokenizer conversion (Mistral native → HuggingFace format)"
+
+  embedding:
+    since: "0.2.0"
+    description: "Embedding model support (/v1/embeddings endpoint, --embed-model)"
+
+  auto_backend:
+    since: "0.2.0"
+    description: "Auto backend selection (metal-q4 → vulkan-q4 → q4 fallback)"
+
+# ─────────────────────────────────────────────
+# Models
+# ─────────────────────────────────────────────
+#
+# Fields:
+#   hf_id:          HuggingFace repository ID (org/model-name)
+#   features:       list of required herbert features (min_version = max of their 'since')
+#   model_type:     value of "model_type" in config.json
+#   params:         parameter count (human-readable)
+#   active_params:  active parameters for MoE models (omit for dense)
+#   arch:           dense | moe
+#   modality:       text | vision | embedding
+#   tested:         whether we have verified this model works with herbert
+#   notes:          additional notes
+
+models:
+
+  # ───────────────────────────────────────────
+  # Qwen3 — Text models (dense)
+  # ───────────────────────────────────────────
+
+  - hf_id: Qwen/Qwen3-0.6B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "0.6B"
+    arch: dense
+    modality: text
+    tested: false
+
+  - hf_id: Qwen/Qwen3-1.7B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "1.7B"
+    arch: dense
+    modality: text
+    tested: false
+
+  - hf_id: Qwen/Qwen3-4B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "4B"
+    arch: dense
+    modality: text
+    tested: true
+    notes: "Thinking model. Tested on metal-q4."
+
+  - hf_id: Qwen/Qwen3-8B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "8B"
+    arch: dense
+    modality: text
+    tested: false
+
+  - hf_id: Qwen/Qwen3-14B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "14B"
+    arch: dense
+    modality: text
+    tested: false
+
+  - hf_id: Qwen/Qwen3-32B
+    features: [qwen3_text]
+    model_type: qwen3
+    params: "32B"
+    arch: dense
+    modality: text
+    tested: false
+
+  # ───────────────────────────────────────────
+  # Qwen3 — Text models (MoE)
+  # ───────────────────────────────────────────
+
+  - hf_id: Qwen/Qwen3-30B-A3B
+    features: [qwen3_text, qwen3_moe]
+    model_type: qwen3_moe
+    params: "30B"
+    active_params: "3B"
+    arch: moe
+    modality: text
+    tested: true
+    notes: "128 experts, 8 active. Tested on metal-q4 and q4."
+
+  - hf_id: Qwen/Qwen3-235B-A22B
+    features: [qwen3_text, qwen3_moe]
+    model_type: qwen3_moe
+    params: "235B"
+    active_params: "22B"
+    arch: moe
+    modality: text
+    tested: false
+    notes: "Requires ~120GB VRAM for Q4. Not practical on consumer hardware."
+
+  # ───────────────────────────────────────────
+  # Qwen3-VL — Vision-Language models (dense)
+  # ───────────────────────────────────────────
+
+  - hf_id: Qwen/Qwen3-VL-2B-Instruct
+    features: [qwen3_text, qwen3_vl]
+    model_type: qwen3_vl
+    params: "2B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "Tested on metal-q4. Smallest VL model."
+
+  - hf_id: Qwen/Qwen3-VL-4B-Instruct
+    features: [qwen3_text, qwen3_vl]
+    model_type: qwen3_vl
+    params: "4B"
+    arch: dense
+    modality: vision
+    tested: false
+
+  - hf_id: Qwen/Qwen3-VL-8B-Instruct
+    features: [qwen3_text, qwen3_vl]
+    model_type: qwen3_vl
+    params: "8B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "Primary development model. Tested extensively on metal-q4, q4, vulkan-q4."
+
+  - hf_id: Qwen/Qwen3-VL-32B-Instruct
+    features: [qwen3_text, qwen3_vl]
+    model_type: qwen3_vl
+    params: "32B"
+    arch: dense
+    modality: vision
+    tested: false
+
+  # ───────────────────────────────────────────
+  # Qwen3-VL — Vision-Language models (MoE)
+  # ───────────────────────────────────────────
+
+  - hf_id: Qwen/Qwen3-VL-30B-A3B-Instruct
+    features: [qwen3_text, qwen3_moe, qwen3_vl, qwen3_vl_moe]
+    model_type: qwen3_vl_moe
+    params: "30B"
+    active_params: "3B"
+    arch: moe
+    modality: vision
+    tested: false
+
+  - hf_id: Qwen/Qwen3-VL-235B-A22B-Instruct
+    features: [qwen3_text, qwen3_moe, qwen3_vl, qwen3_vl_moe]
+    model_type: qwen3_vl_moe
+    params: "235B"
+    active_params: "22B"
+    arch: moe
+    modality: vision
+    tested: false
+    notes: "Requires ~120GB VRAM for Q4."
+
+  # ───────────────────────────────────────────
+  # Mistral3 — Ministral (3B, 8B, 14B)
+  # ───────────────────────────────────────────
+
+  - hf_id: mistralai/Ministral-3-3B-Instruct-2512-BF16
+    features: [mistral3, pixtral]
+    model_type: ministral3
+    params: "3B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "BF16 variant. Includes Pixtral vision encoder. ~23 tok/s decode on Ryzen 9 7900 q4."
+
+  - hf_id: mistralai/Ministral-3-8B-Instruct-2512
+    features: [mistral3, tekken]
+    model_type: ministral3
+    params: "8B"
+    arch: dense
+    modality: text
+    tested: true
+    notes: >
+      Ships with tekken.json, needs conversion to tokenizer.json.
+      4.5x faster prefill than Qwen3-VL-8B (no QK norms).
+      Tested on metal-q4 and q4 (AVX-512).
+
+  - hf_id: mistralai/Ministral-3-8B-Instruct-2512-BF16
+    features: [mistral3]
+    model_type: ministral3
+    params: "8B"
+    arch: dense
+    modality: text
+    tested: true
+    notes: "BF16 variant. Ships with tokenizer.json (no tekken conversion needed)."
+
+  - hf_id: mistralai/Ministral-3-14B-Instruct-2512-BF16
+    features: [mistral3]
+    model_type: mistral3
+    params: "14B"
+    arch: dense
+    modality: text
+    tested: true
+    notes: "BF16 variant. Ships with tokenizer.json. ~10 tok/s decode on M5 metal-q4."
+
+  # ───────────────────────────────────────────
+  # Mistral3 — 24B models (text + Pixtral vision)
+  # ───────────────────────────────────────────
+
+  - hf_id: mistralai/Mistral-Small-3.2-24B-Instruct-2506
+    features: [mistral3, pixtral, tekken]
+    model_type: mistral3
+    params: "24B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "Standard RoPE (theta=1e9). Tested on metal-q4 (~6.1 tok/s decode)."
+
+  - hf_id: mistralai/Magistral-Small-2509
+    features: [mistral3, pixtral, tekken]
+    model_type: mistral3
+    params: "24B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "Standard RoPE (theta=1e9). Tested on metal-q4."
+
+  - hf_id: mistralai/Devstral-Small-2-24B-Instruct-2512
+    features: [mistral3, pixtral, tekken, yarn_rope]
+    model_type: mistral3
+    params: "24B"
+    arch: dense
+    modality: vision
+    tested: true
+    notes: "YARN RoPE (factor=48, theta=1e8). Tested on metal-q4."
+
+  # ───────────────────────────────────────────
+  # Embedding models (for /v1/embeddings)
+  # ───────────────────────────────────────────
+
+  - hf_id: Alibaba-NLP/gte-Qwen2-1.5B-instruct
+    features: [embedding]
+    model_type: qwen2
+    params: "1.5B"
+    arch: dense
+    modality: embedding
+    tested: true
+    notes: >
+      1536-dim embeddings, 32K context. Used for /v1/embeddings endpoint.
+      Loaded separately via --embed-model. Compatible with all backends.
+
+# ─────────────────────────────────────────────
+# Tokenizer conversion
+# ─────────────────────────────────────────────
+#
+# Models requiring the `tekken` feature ship with Mistral's native
+# tekken.json instead of HuggingFace tokenizer.json.
+#
+# Conversion:
+#   pip install mistral-common
+#   python scripts/convert_tekken.py <model_dir>
+#
+# The converter handles:
+#   - BPE vocab ID offset (+1000 for special token reservation)
+#   - GPT-2 byte-to-unicode encoding for BPE merge keys
+#   - All 1000 Mistral special tokens (control tokens, tool markers, etc.)

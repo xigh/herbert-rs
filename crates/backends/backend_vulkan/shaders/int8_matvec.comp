@@ -1,0 +1,55 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Int8 per-channel matrix-vector multiply (decode: M=1)
+//
+// Symmetric signed 8-bit weights packed 4 values per uint32.
+// Per-channel (per-row) f32 scales.
+//
+// x: float[K], w_packed: uint[N * K/4], scales: float[N], y: float[N]
+// y[n] = scales[n] * sum_k(x[k] * int8(w[n,k]))
+//
+// Push constants: K (u32) = 4 bytes.
+// Dispatch: (N, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+// Each workgroup handles one output row. Subgroup reduction over K.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer XBuf { float x[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint w_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer YBuf { float y[]; };
+
+layout(push_constant) uniform Params {
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+
+    float acc = 0.0;
+    uint K4 = K >> 2;              // number of uint32 words per row
+    uint w_base = n * K4;          // offset into w_packed for this row
+
+    for (uint i = lane; i < K4; i += SUBGROUP_SIZE) {
+        uint k = i << 2;          // element index
+        uint packed = w_packed[w_base + i];
+
+        // Extract 4 signed 8-bit values and accumulate
+        acc += x[k]     * float(bitfieldExtract(int(packed),  0, 8));
+        acc += x[k + 1] * float(bitfieldExtract(int(packed),  8, 8));
+        acc += x[k + 2] * float(bitfieldExtract(int(packed), 16, 8));
+        acc += x[k + 3] * float(bitfieldExtract(int(packed), 24, 8));
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        y[n] = acc * scales[n];
+    }
+}

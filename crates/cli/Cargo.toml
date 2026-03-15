@@ -1,0 +1,123 @@
+[package]
+name = "herbert-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "herbert-cli"
+path = "src/main.rs"
+
+[features]
+default = ["moe-v6", "attn-2pass"]
+moe-v6 = [
+    "herbert-backend-q4/moe-v6",
+    "herbert-backend-bf16/moe-v6",
+    "herbert-backend-bf16-avx512/moe-v6",
+    "herbert-backend-int8-avx512/moe-v6",
+]
+profile-layer = [
+    "herbert-backend-q4/profile-layer",
+    "herbert-backend-bf16/profile-layer",
+    "herbert-backend-bf16-avx512/profile-layer",
+    "herbert-backend-int8-avx512/profile-layer",
+]
+profile-attn = [
+    "herbert-backend-q4/profile-attn",
+    "herbert-backend-bf16/profile-attn",
+    "herbert-backend-bf16-avx512/profile-attn",
+    "herbert-backend-int8-avx512/profile-attn",
+]
+profile-experts = [
+    "herbert-backend-q4/profile-experts",
+    "herbert-backend-bf16/profile-experts",
+    "herbert-backend-bf16-avx512/profile-experts",
+    "herbert-backend-int8-avx512/profile-experts",
+]
+profile-kv = [
+    "herbert-backend-q4/profile-kv",
+    "herbert-backend-bf16/profile-kv",
+    "herbert-backend-bf16-avx512/profile-kv",
+    "herbert-backend-int8-avx512/profile-kv",
+]
+profile-prefill-layer = [
+    "herbert-backend-q4/profile-prefill-layer",
+    "herbert-backend-bf16/profile-prefill-layer",
+    "herbert-backend-bf16-avx512/profile-prefill-layer",
+    "herbert-backend-int8-avx512/profile-prefill-layer",
+]
+profile-decode-layer = [
+    "herbert-backend-q4/profile-decode-layer",
+    "herbert-backend-bf16/profile-decode-layer",
+    "herbert-backend-bf16-avx512/profile-decode-layer",
+    "herbert-backend-int8-avx512/profile-decode-layer",
+]
+profile-kvcache-int8 = [
+    "herbert-backend-q4/profile-kvcache-int8",
+    "herbert-backend-bf16/profile-kvcache-int8",
+    "herbert-backend-bf16-avx512/profile-kvcache-int8",
+    "herbert-backend-int8-avx512/profile-kvcache-int8",
+]
+no-sw-prefetch = [
+    "herbert-backend-q4/no-sw-prefetch",
+    "herbert-backend-bf16/no-sw-prefetch",
+    "herbert-backend-bf16-avx512/no-sw-prefetch",
+    "herbert-backend-int8-avx512/no-sw-prefetch",
+]
+hugepages = [
+    "herbert-backend-q4/hugepages",
+    "herbert-backend-bf16/hugepages",
+    "herbert-backend-bf16-avx512/hugepages",
+    "herbert-backend-int8-avx512/hugepages",
+]
+profile-attn-kernel = [
+    "herbert-backend-q4/profile-attn-kernel",
+    "herbert-backend-bf16/profile-attn-kernel",
+    "herbert-backend-bf16-avx512/profile-attn-kernel",
+    "herbert-backend-int8-avx512/profile-attn-kernel",
+]
+profile-moe-decode = [
+    "herbert-backend-q4/profile-moe-decode",
+    "herbert-backend-bf16/profile-moe-decode",
+    "herbert-backend-bf16-avx512/profile-moe-decode",
+    "herbert-backend-int8-avx512/profile-moe-decode",
+]
+attn-2pass = [
+    "herbert-backend-q4/attn-2pass",
+    "herbert-backend-bf16/attn-2pass",
+    "herbert-backend-bf16-avx512/attn-2pass",
+    "herbert-backend-int8-avx512/attn-2pass",
+]
+matvec-v2 = [
+    "herbert-backend-int8-avx512/matvec-v2",
+]
+metal-prefill-profile = [
+    "herbert-backend-metal/prefill-profile",
+]
+simdgroup-matmul = [
+    "herbert-backend-metal/simdgroup-matmul",
+]
+
+[dependencies]
+herbert-core = { path = "../core" }
+herbert-backend-registry = { path = "../backend_registry" }
+herbert-backend-common = { path = "../backends/backend_common" }
+herbert-backend-q4 = { path = "../backends/backend_q4", default-features = false }
+herbert-backend-bf16 = { path = "../backends/backend_bf16", default-features = false }
+herbert-vision = { path = "../vision" }
+herbert-backend-metal = { path = "../backends/backend_metal" }
+herbert-backend-bf16-avx512 = { path = "../backends/backend_bf16_avx512", default-features = false }
+herbert-backend-int8-avx512 = { path = "../backends/backend_int8_avx512", default-features = false }
+herbert-backend-vulkan = { path = "../backends/backend_vulkan" }
+
+image = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+tokenizers = { workspace = true }
+tracing = { workspace = true }
+rustyline = { workspace = true }
+serde = { workspace = true }
+tracing-subscriber = { workspace = true }
+libc = { workspace = true }

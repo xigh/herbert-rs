@@ -1,0 +1,41 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Batched RMS normalization (for prefill) -- subgroup optimized
+//
+// input: float[batch * dim], weight: float[dim], output: float[batch * dim]
+// Dispatch: (batch_size, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer InputBuf { float input_data[]; };
+layout(set = 0, binding = 1) readonly buffer WeightBuf { float weight[]; };
+layout(set = 0, binding = 2) writeonly buffer OutputBuf { float output_data[]; };
+
+layout(push_constant) uniform Params {
+    uint dim;
+    float eps;
+    uint batch_size;
+};
+
+void main() {
+    uint batch_idx = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+    uint offset = batch_idx * dim;
+
+    float sum_sq = 0.0;
+    for (uint i = lane; i < dim; i += SUBGROUP_SIZE) {
+        float v = input_data[offset + i];
+        sum_sq += v * v;
+    }
+    sum_sq = subgroupAdd(sum_sq);
+    float inv_rms = inversesqrt(sum_sq / float(dim) + eps);
+
+    for (uint i = lane; i < dim; i += SUBGROUP_SIZE) {
+        output_data[offset + i] = input_data[offset + i] * inv_rms * weight[i];
+    }
+}

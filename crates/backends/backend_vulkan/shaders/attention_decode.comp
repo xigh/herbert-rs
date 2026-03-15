@@ -1,0 +1,91 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Decode attention: single query token against cached KV.
+//
+// Each workgroup (SUBGROUP_SIZE threads) handles one query head.
+// Dispatch: (num_heads, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+//
+// Supports GQA: multiple query heads share a single KV head
+// via kv_head = h / (num_heads / num_kv_heads).
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer QBuf { float q[]; };
+layout(set = 0, binding = 1) readonly buffer KCacheBuf { float k_cache[]; };
+layout(set = 0, binding = 2) readonly buffer VCacheBuf { float v_cache[]; };
+layout(set = 0, binding = 3) writeonly buffer OutputBuf { float output_data[]; };
+layout(set = 0, binding = 4) buffer ScoresBuf { float scores[]; };
+
+layout(push_constant) uniform Params {
+    uint num_heads;
+    uint num_kv_heads;
+    uint head_dim;
+    uint kv_dim;
+    uint cached_len;
+    float scale;
+};
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+    if (h >= num_heads) return;
+
+    uint kv_group_size = num_heads / num_kv_heads;
+    uint kv_head = h / kv_group_size;
+    uint q_offset = h * head_dim;
+    uint kv_head_base = kv_head * head_dim;
+
+    uint scores_offset = h * cached_len;
+
+    // Phase 1: Compute Q*K^T scores
+    for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+        float score = 0.0;
+        uint k_offset = t * kv_dim + kv_head_base;
+        for (uint d = 0; d < head_dim; d++) {
+            score += q[q_offset + d] * k_cache[k_offset + d];
+        }
+        scores[scores_offset + t] = score * scale;
+    }
+
+    // Phase 2: Numerically stable softmax — find max
+    float max_score = -1.0 / 0.0;
+    for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+        max_score = max(max_score, scores[scores_offset + t]);
+    }
+    max_score = subgroupMax(max_score);
+
+    // Exp and sum
+    float sum_exp = 0.0;
+    for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+        float v = exp(scores[scores_offset + t] - max_score);
+        scores[scores_offset + t] = v;
+        sum_exp += v;
+    }
+    sum_exp = subgroupAdd(sum_exp);
+
+    // Normalize
+    if (sum_exp > 0.0) {
+        float inv = 1.0 / sum_exp;
+        for (uint t = lane; t < cached_len; t += SUBGROUP_SIZE) {
+            scores[scores_offset + t] *= inv;
+        }
+    }
+
+    // Barrier: ensure all softmax score writes are visible to all lanes
+    memoryBarrierBuffer();
+    barrier();
+
+    // Phase 3: Weighted sum of V
+    for (uint d = lane; d < head_dim; d += SUBGROUP_SIZE) {
+        float sum_val = 0.0;
+        for (uint t = 0; t < cached_len; t++) {
+            sum_val += scores[scores_offset + t] * v_cache[t * kv_dim + kv_head_base + d];
+        }
+        output_data[q_offset + d] = sum_val;
+    }
+}

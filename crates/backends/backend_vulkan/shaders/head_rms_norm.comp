@@ -1,0 +1,41 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Per-head RMS normalization (for QK norms) -- subgroup optimized
+//
+// data: float[num_heads * head_dim] (in-place), weight: float[head_dim]
+// Dispatch: (num_heads, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer DataBuf { float data[]; };
+layout(set = 0, binding = 1) readonly buffer WeightBuf { float weight[]; };
+
+layout(push_constant) uniform Params {
+    uint num_heads;
+    uint head_dim;
+    float eps;
+};
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+    if (h >= num_heads) return;
+
+    uint offset = h * head_dim;
+    float sum_sq = 0.0;
+    for (uint i = lane; i < head_dim; i += SUBGROUP_SIZE) {
+        float v = data[offset + i];
+        sum_sq += v * v;
+    }
+    sum_sq = subgroupAdd(sum_sq);
+    float inv_rms = inversesqrt(sum_sq / float(head_dim) + eps);
+
+    for (uint i = lane; i < head_dim; i += SUBGROUP_SIZE) {
+        data[offset + i] = data[offset + i] * inv_rms * weight[i];
+    }
+}

@@ -1,0 +1,34 @@
+#version 450
+
+// RoPE (single position, for decode)
+//
+// qk: float[num_heads * 2 * half_dim], cos: float[half_dim], sin: float[half_dim]
+// Push constants use half_dim directly.
+// Dispatch: (ceil(num_heads * half_dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer QKBuf { float qk[]; };
+layout(set = 0, binding = 1) readonly buffer CosBuf { float cos_vals[]; };
+layout(set = 0, binding = 2) readonly buffer SinBuf { float sin_vals[]; };
+
+layout(push_constant) uniform Params {
+    uint num_heads;
+    uint half_dim;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint h = tid / half_dim;
+    uint j = tid % half_dim;
+    if (h >= num_heads) return;
+
+    uint head_dim = half_dim * 2;
+    uint base = h * head_dim;
+    float x0 = qk[base + j];
+    float x1 = qk[base + half_dim + j];
+    float c = cos_vals[j];
+    float s = sin_vals[j];
+    qk[base + j]            = x0 * c - x1 * s;
+    qk[base + half_dim + j] = x0 * s + x1 * c;
+}

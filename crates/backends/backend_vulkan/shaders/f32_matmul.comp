@@ -1,0 +1,62 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Float32 matrix-matrix multiply -- for batched MoE router gate
+//
+// A: float[M*K], W: float[N*K], C: float[M*N]
+// C[m,n] = sum_k(A[m*K + k] * W[n*K + k])
+//
+// Push constants: M, K
+// Dispatch: (N, M, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+// Each workgroup handles one output element C[m,n].
+// N is derived from gl_NumWorkGroups.x.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf { float A[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { float W[]; };
+layout(set = 0, binding = 2) writeonly buffer CBuf { float C[]; };
+
+layout(push_constant) uniform Params {
+    uint M;
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint m = gl_WorkGroupID.y;
+    uint lane = gl_LocalInvocationID.x;
+    uint N = gl_NumWorkGroups.x;
+
+    if (m >= M) return;
+
+    float acc = 0.0;
+    uint a_base = m * K;
+    uint w_base = n * K;
+
+    // Process 4 elements at a time for better throughput
+    uint K4 = K >> 2;
+    for (uint i = lane; i < K4; i += SUBGROUP_SIZE) {
+        uint k = i << 2;
+        acc += A[a_base + k]     * W[w_base + k];
+        acc += A[a_base + k + 1] * W[w_base + k + 1];
+        acc += A[a_base + k + 2] * W[w_base + k + 2];
+        acc += A[a_base + k + 3] * W[w_base + k + 3];
+    }
+
+    // Handle remainder elements
+    uint k_rem = K4 << 2;
+    for (uint k = k_rem + lane; k < K; k += SUBGROUP_SIZE) {
+        acc += A[a_base + k] * W[w_base + k];
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        C[m * N + n] = acc;
+    }
+}

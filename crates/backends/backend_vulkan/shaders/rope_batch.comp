@@ -1,0 +1,41 @@
+#version 450
+
+// RoPE (batched, for prefill)
+//
+// qk: float[seq_len * num_heads * head_dim]
+// cos_cache: float[max_pos * half_dim], sin_cache: float[max_pos * half_dim]
+// Dispatch: (ceil(seq_len * num_heads * half_dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer QKBuf { float qk[]; };
+layout(set = 0, binding = 1) readonly buffer CosCacheBuf { float cos_cache[]; };
+layout(set = 0, binding = 2) readonly buffer SinCacheBuf { float sin_cache[]; };
+
+layout(push_constant) uniform Params {
+    uint seq_len;
+    uint num_heads;
+    uint half_dim;
+    uint start_pos;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint head_dim = half_dim * 2;
+    uint qk_per_pos = num_heads * head_dim;
+    uint work_per_pos = num_heads * half_dim;
+    uint pos = tid / work_per_pos;
+    uint rem = tid % work_per_pos;
+    uint h = rem / half_dim;
+    uint j = rem % half_dim;
+    if (pos >= seq_len) return;
+
+    uint abs_pos = start_pos + pos;
+    uint base = pos * qk_per_pos + h * head_dim;
+    float x0 = qk[base + j];
+    float x1 = qk[base + j + half_dim];
+    float c = cos_cache[abs_pos * half_dim + j];
+    float s = sin_cache[abs_pos * half_dim + j];
+    qk[base + j]            = x0 * c - x1 * s;
+    qk[base + j + half_dim] = x0 * s + x1 * c;
+}

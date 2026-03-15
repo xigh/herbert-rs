@@ -1,0 +1,56 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// BF16 matrix-vector multiply (decode: M=1)
+//
+// BF16 weights stored as uint16 pairs packed in uint32.
+// No scales (BF16 is a direct floating-point representation).
+//
+// x: float[K], w_packed: uint[N * K/2], y: float[N]
+// y[n] = sum_k(x[k] * bf16_to_f32(w[n,k]))
+// where bf16_to_f32(bits) = uintBitsToFloat(bits << 16)
+//
+// Push constants: K (u32) = 4 bytes.
+// Dispatch: (N, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+// Each workgroup handles one output row. Subgroup reduction over K.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer XBuf { float x[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint w_packed[]; };
+layout(set = 0, binding = 2) writeonly buffer YBuf { float y[]; };
+
+layout(push_constant) uniform Params {
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+
+    float acc = 0.0;
+    uint K2 = K >> 1;              // number of uint32 words per row
+    uint w_base = n * K2;          // offset into w_packed for this row
+
+    for (uint i = lane; i < K2; i += SUBGROUP_SIZE) {
+        uint k = i << 1;          // element index
+        uint packed = w_packed[w_base + i];
+
+        // Extract 2 BF16 values and convert to float32
+        float w0 = uintBitsToFloat((packed & 0xFFFFu) << 16);
+        float w1 = uintBitsToFloat(packed & 0xFFFF0000u);
+
+        acc += x[k]     * w0;
+        acc += x[k + 1] * w1;
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        y[n] = acc;
+    }
+}

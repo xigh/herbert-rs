@@ -1,0 +1,73 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Q4 v5 per-group matrix-matrix multiply (prefill: M>1)
+//
+// Vectorized K-group loads: 4 packed words + 1 scale per iteration.
+// Processes 32 nibbles (1 full K-group) per loop iteration vs 8 in v0.
+// Only 1 scale fetch per iteration instead of potentially 4.
+//
+// A: float[M*K], W_packed: uint32[N * K/8], scales: float[N * n_groups], C: float[M*N]
+// K must be a multiple of 32 (always true for Qwen3).
+//
+// Push constants: M (u32) + N (u32) + K (u32) = 12 bytes.
+// Dispatch: (N, M, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf { float A[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint W_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer CBuf { float C[]; };
+
+layout(push_constant) uniform Params {
+    uint M;
+    uint N;
+    uint K;
+};
+
+void main() {
+    uint n = gl_WorkGroupID.x;
+    uint m = gl_WorkGroupID.y;
+    uint lane = gl_LocalInvocationID.x;
+
+    if (m >= M || n >= N) return;
+
+    float acc = 0.0;
+    uint a_base = m * K;
+    uint n_groups = K >> 5;       // K / 32
+    uint K8 = K >> 3;             // K / 8
+    uint w_base = n * K8;
+    uint s_base = n * n_groups;
+
+    // Iterate per K-group: 32 elements = 4 packed words
+    for (uint g = lane; g < n_groups; g += SUBGROUP_SIZE) {
+        float scale = scales[s_base + g];
+        uint k_base = g << 5;            // g * 32
+        uint w_off = w_base + (g << 2);  // w_base + g * 4
+
+        uint p0 = W_packed[w_off + 0];
+        uint p1 = W_packed[w_off + 1];
+        uint p2 = W_packed[w_off + 2];
+        uint p3 = W_packed[w_off + 3];
+
+        // Process 32 nibbles: 8 per packed word
+        for (uint nib = 0; nib < 8; nib++) {
+            uint shift = nib << 2;
+            acc += A[a_base + k_base + nib]      * (float((p0 >> shift) & 0xFu) - 8.0) * scale;
+            acc += A[a_base + k_base + 8 + nib]  * (float((p1 >> shift) & 0xFu) - 8.0) * scale;
+            acc += A[a_base + k_base + 16 + nib] * (float((p2 >> shift) & 0xFu) - 8.0) * scale;
+            acc += A[a_base + k_base + 24 + nib] * (float((p3 >> shift) & 0xFu) - 8.0) * scale;
+        }
+    }
+
+    acc = subgroupAdd(acc);
+
+    if (lane == 0) {
+        C[m * N + n] = acc;
+    }
+}

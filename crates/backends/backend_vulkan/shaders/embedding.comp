@@ -1,0 +1,27 @@
+#version 450
+
+// Token embedding lookup
+//
+// embed_table: float[vocab_size * hidden_size], tokens: uint[seq_len],
+// output: float[seq_len * hidden_size]
+// Dispatch: (ceil(seq_len * hidden_size / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer EmbedTableBuf { float embed_table[]; };
+layout(set = 0, binding = 1) readonly buffer TokensBuf { uint tokens[]; };
+layout(set = 0, binding = 2) writeonly buffer OutputBuf { float output_data[]; };
+
+layout(push_constant) uniform Params {
+    uint hidden_size;
+    uint total_elements;  // seq_len * hidden_size
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= total_elements) return;
+    uint seq_idx = tid / hidden_size;
+    uint dim_idx = tid % hidden_size;
+    uint token_id = tokens[seq_idx];
+    output_data[tid] = embed_table[token_id * hidden_size + dim_idx];
+}

@@ -1,0 +1,49 @@
+[package]
+name = "herbert-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "herbert-server"
+path = "src/main.rs"
+
+[features]
+default = ["moe-v6", "attn-2pass"]
+moe-v6 = [
+    "herbert-backend-q4/moe-v6",
+    "herbert-backend-bf16/moe-v6",
+]
+attn-2pass = [
+    "herbert-backend-q4/attn-2pass",
+    "herbert-backend-bf16/attn-2pass",
+]
+metal-prefill-profile = [
+    "herbert-backend-metal/prefill-profile",
+]
+decode-debug = []
+simdgroup-matmul = [
+    "herbert-backend-metal/simdgroup-matmul",
+]
+
+[dependencies]
+herbert-core = { path = "../core" }
+herbert-backend-registry = { path = "../backend_registry" }
+herbert-backend-common = { path = "../backends/backend_common" }
+herbert-backend-q4 = { path = "../backends/backend_q4", default-features = false }
+herbert-backend-bf16 = { path = "../backends/backend_bf16", default-features = false }
+herbert-backend-metal = { path = "../backends/backend_metal" }
+
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokenizers = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+uuid = { workspace = true }
+tokio-stream = { workspace = true }

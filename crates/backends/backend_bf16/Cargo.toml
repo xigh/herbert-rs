@@ -1,0 +1,27 @@
+[package]
+name = "herbert-backend-bf16"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = ["moe-v6"]
+moe-v6 = ["herbert-backend-common/moe-v6"]
+profile-layer = ["herbert-backend-common/profile-layer"]
+profile-attn = ["herbert-backend-common/profile-attn"]
+profile-experts = ["herbert-backend-common/profile-experts"]
+profile-kv = ["herbert-backend-common/profile-kv"]
+profile-prefill-layer = ["herbert-backend-common/profile-prefill-layer"]
+profile-decode-layer = ["herbert-backend-common/profile-decode-layer"]
+no-sw-prefetch = ["herbert-backend-common/no-sw-prefetch"]
+hugepages = ["herbert-backend-common/hugepages"]
+profile-kvcache-int8 = ["herbert-backend-common/profile-kvcache-int8"]
+profile-attn-kernel = ["herbert-backend-common/profile-attn-kernel"]
+profile-moe-decode = ["herbert-backend-common/profile-moe-decode"]
+attn-2pass = ["herbert-backend-common/attn-2pass"]
+
+[dependencies]
+herbert-core = { path = "../../core" }
+herbert-backend-common = { path = "../backend_common", default-features = false }
+tracing = { workspace = true }

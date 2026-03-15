@@ -1,0 +1,16 @@
+[package]
+name = "herbert-backend-registry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+herbert-core = { path = "../core" }
+herbert-backend-q4 = { path = "../backends/backend_q4", default-features = false }
+herbert-backend-bf16 = { path = "../backends/backend_bf16", default-features = false }
+herbert-backend-bf16-avx512 = { path = "../backends/backend_bf16_avx512", default-features = false }
+herbert-backend-int8-avx512 = { path = "../backends/backend_int8_avx512", default-features = false }
+herbert-backend-metal = { path = "../backends/backend_metal" }
+herbert-backend-vulkan = { path = "../backends/backend_vulkan" }

@@ -1,0 +1,18 @@
+[package]
+name = "herbert-vision"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+herbert-core = { path = "../core" }
+indicatif = { workspace = true }
+memmap2 = { workspace = true }
+safetensors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"

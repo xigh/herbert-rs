@@ -1,0 +1,25 @@
+#version 450
+
+/// Broadcast bias add: data[t*dim + d] += bias[d]
+///
+/// Adds a [dim]-sized bias vector to each of [batch_size] rows in a
+/// [batch_size, dim] row-major data buffer.
+///
+/// Push constants: dim (u32) + total (u32) = 8 bytes.
+/// Dispatch: (ceil(total / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer DataBuf { float data[]; };
+layout(set = 0, binding = 1) readonly buffer BiasBuf { float bias[]; };
+
+layout(push_constant) uniform Params {
+    uint dim;
+    uint total;  // = batch_size * dim
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= total) return;
+    data[idx] += bias[idx % dim];
+}

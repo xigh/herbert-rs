@@ -1,0 +1,28 @@
+#version 450
+
+// Weighted scatter-add: output[indices[i]*dim + d] += weights[i] * input[i*dim + d]
+// Dispatch: (ceil(count * dim / 256), 1, 1) workgroups of (256, 1, 1) threads.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer OutBuf { float out_data[]; };
+layout(set = 0, binding = 1) readonly buffer InBuf { float in_data[]; };
+layout(set = 0, binding = 2) readonly buffer IdxBuf { uint indices[]; };
+layout(set = 0, binding = 3) readonly buffer WtBuf { float weights[]; };
+
+layout(push_constant) uniform Params {
+    uint dim;
+    uint count;
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    uint total = count * dim;
+    if (idx >= total) return;
+
+    uint row = idx / dim;
+    uint col = idx % dim;
+    uint dst_row = indices[row];
+    float w = weights[row];
+    out_data[dst_row * dim + col] += w * in_data[idx];
+}

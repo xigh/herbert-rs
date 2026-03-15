@@ -1,0 +1,48 @@
+#version 450
+#extension GL_KHR_shader_subgroup_shuffle_relative : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Argmax -- subgroup optimized
+//
+// data: float[n] (readonly), result: uint[2] (index, value-as-bits)
+// Dispatch: (1, 1, 1) workgroups of (SUBGROUP_SIZE, 1, 1) threads.
+
+layout(local_size_x = SUBGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer DataBuf { float data[]; };
+layout(set = 0, binding = 1) writeonly buffer ResultBuf { uint result[]; };
+
+layout(push_constant) uniform Params {
+    uint n;
+};
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+
+    float best_val = -1.0 / 0.0; // -INF
+    uint best_idx = 0;
+    for (uint i = lane; i < n; i += SUBGROUP_SIZE) {
+        if (data[i] > best_val) {
+            best_val = data[i];
+            best_idx = i;
+        }
+    }
+
+    // Subgroup reduction: find global max across all lanes
+    for (uint offset = SUBGROUP_SIZE / 2; offset > 0; offset >>= 1) {
+        float other_val = subgroupShuffleDown(best_val, offset);
+        uint other_idx = subgroupShuffleDown(best_idx, offset);
+        if (other_val > best_val) {
+            best_val = other_val;
+            best_idx = other_idx;
+        }
+    }
+
+    if (lane == 0) {
+        result[0] = best_idx;
+        result[1] = floatBitsToUint(best_val);
+    }
+}

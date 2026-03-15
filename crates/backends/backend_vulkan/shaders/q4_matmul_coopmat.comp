@@ -1,0 +1,122 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_cooperative_matrix : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float32 : enable
+
+#ifndef SUBGROUP_SIZE
+#define SUBGROUP_SIZE 32
+#endif
+
+// Q4 cooperative matrix matmul (prefill: M >= 16)
+//
+// WG=256: all subgroups (8 on NVIDIA, 4 on AMD) compute WMMA redundantly
+// (~56 cycles) but cooperative loads use all 256 threads (1 elem/thread).
+// Output staging via shared memory for coalesced global writes.
+//
+// C[M,N] = A[M,K] * dequant(W_packed[N,K/2], scales[N,K/32])
+//
+// Push constants: M (u32) + N (u32) + K (u32) = 12 bytes.
+// Dispatch: (ceil(N/16), ceil(M/16), 1) workgroups of (256, 1, 1).
+//
+// Shared memory: sh_a(512B) + sh_wt(512B) + sh_c(1024B) = 2048B
+
+#define TILE_M 16
+#define TILE_N 16
+#define TILE_K 16
+#define WG_SIZE 256
+
+layout(local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf { float A[]; };
+layout(set = 0, binding = 1) readonly buffer WBuf { uint W_packed[]; };
+layout(set = 0, binding = 2) readonly buffer ScalesBuf { float scales[]; };
+layout(set = 0, binding = 3) writeonly buffer CBuf { float C[]; };
+
+layout(push_constant) uniform Params {
+    uint M;
+    uint N;
+    uint K;
+};
+
+// Shared memory for dequantized tiles + output staging
+shared float16_t sh_a[TILE_M * TILE_K];   // A tile [TILE_M][TILE_K] row-major
+shared float16_t sh_wt[TILE_K * TILE_N];  // W^T tile [TILE_K][TILE_N] row-major
+shared float sh_c[TILE_M * TILE_N];        // Output staging [TILE_M][TILE_N]
+
+void main() {
+    uint tile_n = gl_WorkGroupID.x;
+    uint tile_m = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint m_start = tile_m * TILE_M;
+    uint n_start = tile_n * TILE_N;
+
+    uint K8 = K >> 3;
+    uint n_groups = (K + 31) >> 5;
+
+    // Accumulator (per subgroup — all subgroups compute redundantly)
+    coopmat<float32_t, gl_ScopeSubgroup, TILE_M, TILE_N, gl_MatrixUseAccumulator> Acc;
+    Acc = coopmat<float32_t, gl_ScopeSubgroup, TILE_M, TILE_N, gl_MatrixUseAccumulator>(0.0);
+
+    for (uint kk = 0; kk < K; kk += TILE_K) {
+        // Load A tile into shared as fp16 (256 elems, 1 per thread)
+        for (uint i = tid; i < TILE_M * TILE_K; i += WG_SIZE) {
+            uint lm = i / TILE_K;
+            uint lk = i % TILE_K;
+            uint gm = m_start + lm;
+            uint gk = kk + lk;
+            sh_a[lm * TILE_K + lk] = (gm < M && gk < K)
+                ? float16_t(A[gm * K + gk])
+                : float16_t(0.0);
+        }
+
+        // Dequant W and transpose into sh_wt[k][n] as fp16 (256 elems, 1 per thread)
+        for (uint i = tid; i < TILE_K * TILE_N; i += WG_SIZE) {
+            uint ln = i / TILE_K;
+            uint lk = i % TILE_K;
+            uint gn = n_start + ln;
+            uint gk = kk + lk;
+
+            float16_t val = float16_t(0.0);
+            if (gn < N && gk < K) {
+                uint word_idx = gn * K8 + (gk >> 3);
+                uint packed = W_packed[word_idx];
+                uint nib_pos = gk & 7;
+                uint nibble = (packed >> (nib_pos * 4)) & 0xFu;
+                float scale = scales[gn * n_groups + (gk >> 5)];
+                val = float16_t((float(nibble) - 8.0) * scale);
+            }
+            sh_wt[lk * TILE_N + ln] = val;
+        }
+
+        barrier();
+
+        // Cooperative matrix multiply-add (all subgroups redundantly)
+        coopmat<float16_t, gl_ScopeSubgroup, TILE_M, TILE_K, gl_MatrixUseA> MatA;
+        coopmat<float16_t, gl_ScopeSubgroup, TILE_K, TILE_N, gl_MatrixUseB> MatB;
+
+        coopMatLoad(MatA, sh_a, 0, TILE_K, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(MatB, sh_wt, 0, TILE_N, gl_CooperativeMatrixLayoutRowMajor);
+        Acc = coopMatMulAdd(MatA, MatB, Acc);
+
+        barrier();
+    }
+
+    // Store result to shared (all subgroups write same data — benign race)
+    coopMatStore(Acc, sh_c, 0, TILE_N, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+
+    // Cooperative global write (all 256 threads for coalesced access)
+    for (uint i = tid; i < TILE_M * TILE_N; i += WG_SIZE) {
+        uint lm = i / TILE_N;
+        uint ln = i % TILE_N;
+        uint gm = m_start + lm;
+        uint gn = n_start + ln;
+        if (gm < M && gn < N) {
+            C[gm * N + gn] = sh_c[lm * TILE_N + ln];
+        }
+    }
+}
