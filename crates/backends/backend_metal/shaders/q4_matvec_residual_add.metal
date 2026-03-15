@@ -9,9 +9,12 @@ constant half q4_lut[16] = {
 };
 #endif
 
+#ifndef Q4_MATVEC_PARAMS_DEFINED
+#define Q4_MATVEC_PARAMS_DEFINED
 struct Q4MatvecParams {
     uint K;
 };
+#endif
 
 // Q4 matrix-vector multiply with fused residual add.
 //

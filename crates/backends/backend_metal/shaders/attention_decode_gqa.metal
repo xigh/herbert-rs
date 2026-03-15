@@ -1,6 +1,8 @@
 #include <metal_stdlib>
 using namespace metal;
 
+#ifndef ATTENTION_DECODE_PARAMS_DEFINED
+#define ATTENTION_DECODE_PARAMS_DEFINED
 struct AttentionDecodeParams {
     uint  num_heads;
     uint  num_kv_heads;
@@ -9,6 +11,7 @@ struct AttentionDecodeParams {
     uint  cached_len;
     float scale;
 };
+#endif
 
 // Decode attention specialized for GQA.
 //

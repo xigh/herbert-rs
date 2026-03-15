@@ -1,9 +1,12 @@
 #include <metal_stdlib>
 using namespace metal;
 
+#ifndef Q4_MATVEC_PARAMS_DEFINED
+#define Q4_MATVEC_PARAMS_DEFINED
 struct Q4MatvecParams {
     uint K;
 };
+#endif
 
 // Q4 matvec v2 with fused residual add — optimised decode kernel.
 //
