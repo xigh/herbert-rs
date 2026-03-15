@@ -8,30 +8,30 @@ A local LLM inference engine written from scratch in Rust, with hand-written SIM
 
 | Model | Params | Tested |
 |-------|--------|--------|
-| `Qwen/Qwen3-0.6B` | 0.6B | |
-| `Qwen/Qwen3-1.7B` | 1.7B | |
+| `Qwen/Qwen3-0.6B` | 0.6B | yes |
+| `Qwen/Qwen3-1.7B` | 1.7B | yes |
 | `Qwen/Qwen3-4B` | 4B | yes |
-| `Qwen/Qwen3-8B` | 8B | |
-| `Qwen/Qwen3-14B` | 14B | |
-| `Qwen/Qwen3-32B` | 32B | |
+| `Qwen/Qwen3-8B` | 8B | yes |
+| `Qwen/Qwen3-14B` | 14B | yes |
+| `Qwen/Qwen3-32B` | 32B | yes |
 
 ### Qwen3 — Text (MoE)
 
 | Model | Params | Active | Tested |
 |-------|--------|--------|--------|
 | `Qwen/Qwen3-30B-A3B` | 30B | 3B | yes |
-| `Qwen/Qwen3-235B-A22B` | 235B | 22B | |
+| `Qwen/Qwen3-235B-A22B` | 235B | 22B | - |
 
 ### Qwen3-VL — Vision-Language
 
 | Model | Params | Tested |
 |-------|--------|--------|
 | `Qwen/Qwen3-VL-2B-Instruct` | 2B | yes |
-| `Qwen/Qwen3-VL-4B-Instruct` | 4B | |
+| `Qwen/Qwen3-VL-4B-Instruct` | 4B | yes |
 | `Qwen/Qwen3-VL-8B-Instruct` | 8B | yes |
-| `Qwen/Qwen3-VL-32B-Instruct` | 32B | |
-| `Qwen/Qwen3-VL-30B-A3B-Instruct` | 30B (MoE, 3B active) | |
-| `Qwen/Qwen3-VL-235B-A22B-Instruct` | 235B (MoE, 22B active) | |
+| `Qwen/Qwen3-VL-32B-Instruct` | 32B | yes |
+| `Qwen/Qwen3-VL-30B-A3B-Instruct` | 30B (MoE, 3B active) | yes |
+| `Qwen/Qwen3-VL-235B-A22B-Instruct` | 235B (MoE, 22B active) | - |
 
 ### Mistral3 / Ministral3
 
@@ -183,9 +183,8 @@ The build auto-detects available CPU features (AVX-512, VNNI, AVX-512 BF16) and 
 
 | Platform | CPU Backends | GPU Backend |
 |----------|-------------|-------------|
-| macOS (Apple Silicon) | BF16 scalar | Metal |
-| macOS (x86-64) | BF16, BF16-AVX512, INT8-AVX512, Q4 | Metal |
-| Linux (x86-64) | BF16, BF16-AVX512, INT8-AVX512, Q4 | Vulkan |
+| macOS (Apple Silicon) | BF16 scalar/Neo | Metal |
+| Linux (x86-64) | BF16, BF16-AVX2/512, INT8-AVX2/512, Q4-AVX2/512 | Vulkan |
 
 ## License
 
