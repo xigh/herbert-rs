@@ -94,7 +94,7 @@ All critical inner loops are hand-written x86-64 assembly (`.S` files).
 ### GPU Backends
 
 - **Metal** (macOS) — 92 compute shaders covering Q4/INT8/BF16 matvec, matmul, flash attention, MoE, vision encoding, KV cache management
-- **Vulkan** (Linux) — 31 GLSL compute shaders with cooperative matrix support, portable across AMD/NVIDIA/Intel
+- **Vulkan** (Linux) — 31 GLSL compute shaders with cooperative matrix support, portable across AMD/NVIDIA/Intel. Use `--gpu list` to enumerate devices, `--gpu N` to select (0=first discrete, 1000+=global index for iGPU)
 
 ### Inference
 
@@ -134,6 +134,11 @@ herbert-cli --model <path> --prompt "Hello" --verbose
 # Choose a specific backend
 herbert-cli --model <path> --backend metal-q4
 herbert-cli --model <path> --backend help   # list available backends
+
+# GPU selection (Vulkan)
+herbert-cli --gpu list                       # list available GPUs
+herbert-cli --gpu 0 --model <path> --backend vulkan-bf16   # first discrete GPU (default)
+herbert-cli --gpu 1000 --model <path> --backend vulkan-bf16 # iGPU (global index)
 
 # Tool calling
 herbert-cli --model <path> --tools
