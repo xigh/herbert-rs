@@ -2,6 +2,15 @@
 
 A local LLM inference engine written from scratch in Rust, with hand-written SIMD kernels and GPU compute shaders. No GGML, no llama.cpp — every matrix multiply, attention kernel, and quantization routine is implemented directly.
 
+- [Supported Models](#supported-models)
+- [Downloading Models](#downloading-models)
+- [Features](#features)
+- [Binaries](#binaries)
+- [Design](#design)
+- [Benchmarks](#benchmarks)
+- [Building](#building)
+- [License](#license)
+
 ## Supported Models
 
 ### Qwen3 — Text (dense)
