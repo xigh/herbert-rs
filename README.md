@@ -176,6 +176,28 @@ Native desktop application built with Tauri 2 and Vue 3.
 - Model loading with progress feedback
 - Settings panel for sampling parameters and backend selection
 
+## Design
+
+Most inference engines optimize for prefill throughput (batched GEMM). Herbert takes a different approach: it is built around the assumption that inference performance is limited by memory bandwidth, not compute. It prioritizes decode speed, which is what determines the user experience in interactive use.
+
+At decode time, the bottleneck is memory bandwidth — each generated token requires reading the full KV cache. Herbert addresses this with an INT8 KV cache that halves the bandwidth requirement compared to FP16, using hand-written VNNI kernels that avoid the dequantization overhead seen in other implementations.
+
+In practice:
+- **Prefill**: not the primary optimization target yet (batched matmul is in progress). Currently 1.5-2x behind llama.cpp on dense models
+- **Decode (short context)**: on par with llama.cpp
+- **Decode (long context)**: performance improves as context grows, because KV cache bandwidth becomes the dominant cost — and Herbert reduces that cost
+
+On Mixture-of-Experts models, Herbert's expert batching also improves prefill, leading to better performance across the board.
+
+These results are consistent across all four tested models and architectures (dense, VL, MoE).
+
+### Methodology
+
+Every kernel optimization is validated empirically using:
+- **Hardware performance counters** (AMD Zen4 PMC via `perf_event_open` + `rdpmc` fast-path) — cycle-precise, core-pinned, multi-pass measurement of L1/L2/L3 cache behavior, retired instructions, and branch mispredictions
+- **Memory bandwidth sweeps** — working set sizes from L1 (48KB) through L2 (1.25MB) to DRAM (64MB+) to establish theoretical bandwidth ceilings
+- **Wall-clock throughput** — end-to-end prefill and decode measurements with controlled cooldown periods between runs
+
 ## Benchmarks
 
 CPU-only benchmarks on an AMD Ryzen 9 7900 (12C/24T, AVX-512, 96 GB DDR5), comparing Herbert with llama.cpp, HF Transformers, vLLM-CPU, and ONNX Runtime.
