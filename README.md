@@ -176,6 +176,57 @@ Native desktop application built with Tauri 2 and Vue 3.
 - Model loading with progress feedback
 - Settings panel for sampling parameters and backend selection
 
+## Benchmarks
+
+CPU-only benchmarks on an AMD Ryzen 9 7900 (12C/24T, AVX-512, 96 GB DDR5), comparing Herbert with llama.cpp, HF Transformers, vLLM-CPU, and ONNX Runtime.
+
+### Decode throughput (tokens/s) — what the user sees
+
+Herbert's KV cache quantization (INT8 by default) gives it an increasing advantage over llama.cpp as context length grows. On short contexts, llama.cpp is slightly faster; on longer contexts (1K+ tokens), Herbert pulls ahead.
+
+**Qwen3-0.6B — Q4 decode**
+
+| Context | Herbert Q4 | llama.cpp Q4 | vLLM BF16 | HF Transformers |
+|--------:|-----------:|-------------:|----------:|----------------:|
+| ~100 | 110 | 110 | 30 | 27 |
+| ~1000 | 101 | 97 | 29 | 22 |
+| ~5000 | 70 | 56 | 25 | 11 |
+| ~10000 | 52 | 35 | 18 | 7 |
+| ~16000 | 29 | 17 | 14 | 3 |
+
+**Qwen3-VL-30B-A3B (MoE) — Q4 decode**
+
+| Context | Herbert Q4 | llama.cpp Q4 | vLLM BF16 | HF Transformers |
+|--------:|-----------:|-------------:|----------:|----------------:|
+| ~300 | 27 | 25 | 6 | 5 |
+| ~1300 | 25 | 23 | 6 | 5 |
+| ~3200 | 21 | 19 | 6 | 4 |
+| ~6400 | 17 | 15 | — | — |
+
+On MoE models, Herbert also wins on prefill thanks to its expert batching optimizations (moe-v6).
+
+### Prefill throughput (tokens/s)
+
+llama.cpp has faster prefill on dense models (~1.5-2x) due to its batched GEMM. vLLM-CPU has the best prefill overall thanks to chunked prefill + torch matmul.
+
+**Qwen3-0.6B — prefill at ~1000 tokens**
+
+| Engine | t/s |
+|--------|----:|
+| vLLM-CPU BF16 | 1989 |
+| HF Transformers BF16 | 1292 |
+| llama.cpp BF16 | 1057 |
+| Herbert Q4 | 751 |
+
+### Detailed results
+
+Full benchmarks with all prompt sizes, quantizations, and KV cache configurations are in [`docs/benchmarks/`](docs/benchmarks/):
+
+- [Qwen3-0.6B](docs/benchmarks/qwen3-0.6b-results.md) — dense 0.6B, 5 engines including ONNX Runtime
+- [Qwen3-VL-4B](docs/benchmarks/qwen3-vl-4b-results.md) — dense VL 4B
+- [Ministral-3 3B](docs/benchmarks/ministral-3-3b-results.md) — dense text 3B (Mistral)
+- [Qwen3-VL-30B-A3B](docs/benchmarks/qwen3-vl-30b-a3b-results.md) — MoE 30B (3B active)
+
 ## Building
 
 ```bash
