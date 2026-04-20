@@ -151,6 +151,10 @@ struct Cli {
     #[arg(long)]
     show_specials: bool,
 
+    /// Pass prompt without chat template wrapping (for models without chat_template)
+    #[arg(long)]
+    raw_prompt: bool,
+
     /// Enable tool calling (get_datetime, calculate, list_directory, read_file)
     #[arg(long)]
     tools: bool,
@@ -492,7 +496,11 @@ fn main() -> anyhow::Result<()> {
     // For KV reserve hint: prompt tokens + max_tokens + headroom.
     // No artificial 64K floor — let the user control allocation via --kv-budget.
     let reserve_hint = if let Some(ref p) = prompt {
-        let full = build_prompt(p, system_prompt.as_deref(), cli.image.len(), model_family);
+        let full = if cli.raw_prompt {
+            p.clone()
+        } else {
+            build_prompt(p, system_prompt.as_deref(), cli.image.len(), model_family)
+        };
         let toks = parse_tokens(Some(&tokenizer), &full)?;
         // 2× headroom for thinking tokens, clamped to reasonable bounds
         let needed = toks.len().saturating_add(max_tokens * 2);
@@ -762,8 +770,12 @@ fn main() -> anyhow::Result<()> {
     // ── Single-shot mode (existing behavior) ──
     let prompt = prompt.unwrap(); // safe: chat_mode is false
 
-    // Build prompt with chat template
-    let full_prompt = build_prompt(&prompt, effective_system, cli.image.len(), model_family);
+    // Build prompt with chat template (or raw if --raw-prompt)
+    let full_prompt = if cli.raw_prompt {
+        prompt.clone()
+    } else {
+        build_prompt(&prompt, effective_system, cli.image.len(), model_family)
+    };
     debug!(prompt_len = full_prompt.len(), "Built chat prompt");
 
     // Tokenize
