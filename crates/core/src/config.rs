@@ -95,7 +95,8 @@ impl ModelFamily {
     pub fn from_model_type(model_type: &str) -> Option<Self> {
         match model_type {
             "qwen3" | "qwen3_moe" | "qwen3_vl" | "qwen3_vl_moe"
-            | "qwen3_vl_text" | "qwen3_vl_moe_text" => Some(Self::Qwen3),
+            | "qwen3_vl_text" | "qwen3_vl_moe_text"
+            | "llama" => Some(Self::Qwen3),
             "mistral3" | "ministral3" | "mistral" | "mixtral" => Some(Self::Mistral3),
             _ => None,
         }
@@ -500,13 +501,16 @@ impl Config {
         let model_family = ModelFamily::from_model_type(&json.model_type)
             .ok_or_else(|| {
                 HerbertError::Config(format!(
-                    "unsupported model_type: {:?}. Supported: qwen3, qwen3_moe, qwen3_vl, qwen3_vl_moe, mistral3, ministral3, mistral",
+                    "unsupported model_type: {:?}. Supported: qwen3, qwen3_moe, qwen3_vl, qwen3_vl_moe, mistral3, ministral3, mistral, llama",
                     json.model_type
                 ))
             })?;
 
         let (has_qk_norm, has_attn_bias) = match model_family {
-            ModelFamily::Qwen3 => (true, false),
+            ModelFamily::Qwen3 => {
+                let qk_norm = json.model_type != "llama";
+                (qk_norm, false)
+            },
             ModelFamily::Mistral3 => (false, false),
         };
         let has_o_bias = false;
